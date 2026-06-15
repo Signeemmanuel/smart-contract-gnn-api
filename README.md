@@ -80,6 +80,34 @@ All via environment (see `.env.example`):
 
 ## Running
 
+**Quick start.** A helper script does the whole thing — venv, dependencies,
+tests, server — in one command:
+
+```bash
+./run.sh            # setup + tests + start the dev server
+./run.sh test       # setup + tests only
+./run.sh serve      # setup + start the server
+```
+
+See the comment block at the top of `run.sh` for options (e.g. `FULL=1` for the
+heavy serving stack, `SCGNN_SRC=$HOME/smart-contract-gnn-model` to install scgnn
+from a local clone instead of GitHub). The manual steps below are the same thing
+spelled out.
+
+Always work inside a virtual environment, so the API's dependencies stay
+isolated. This matters in particular on the model training box (`gpu-01`), which
+carries a specific GPU torch build in the model repo's environment: installing
+the API stack there could pull a conflicting torch and break the model side. A
+fresh venv keeps the two separate.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+```
+
+(`.venv/` is git-ignored.) Deactivate with `deactivate`; re-activate with the
+same `source` line in a new shell.
+
 **Serving (full stack).** Needs a GitHub credential for the private `scgnn`
 repo and the heavy serving stack:
 
@@ -93,13 +121,16 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 mocks the heavy calls and revision resolution):
 
 ```bash
-pip install --no-deps "scgnn @ git+https://github.com/Signeemmanuel/smart-contract-gnn-model.git@23ffacc1c145a1c79788ea2cd791d5b0dc0ced2b"
+pip install --no-deps "scgnn @ git+https://github.com/Signeemmanuel/smart-contract-gnn-model.git@master"
 pip install -r requirements-dev.txt
 pytest -q
 ```
 
 `--no-deps` pulls only the `scgnn` code (its stdlib-only `schema.py`) without the
-heavy dependencies, which is all the tests need.
+heavy dependencies, which is all the tests need. `@master` tracks the latest
+commit on the default branch — fine for skeleton testing, since the suite only
+touches the stable `scgnn.schema`. (For serving, `requirements.txt` stays pinned
+to a specific commit — see Pinning and reproducibility.)
 
 ## Pinning and reproducibility
 
