@@ -1,0 +1,26 @@
+# scgnn-api runtime dependencies (the web service layer).
+#
+# The heavy serving stack (CPU torch, torch-geometric, transformers, scikit-learn,
+# slither-analyzer) is pulled transitively by `scgnn` (see its pyproject floors)
+# and provisioned at *exact* versions by the Dockerfile, where CPU torch is
+# installed BEFORE scgnn so the scgnn install never drags in a CUDA build. The
+# solc-select compiler superset is also a Dockerfile concern. Those are not
+# pinned here, to keep this file the web layer's own surface.
+
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+pydantic>=2.7,<3
+pydantic-settings>=2.3,<3
+huggingface_hub>=0.24,<2          # training env resolves 1.19.0
+python-multipart>=0.0.9
+
+# The model package (code), pinned to the exact commit used for the reported
+# model, taken from the training lockfile. The repo is PRIVATE, so the build
+# needs a GitHub credential: an HTTPS token (recommended for Docker, via a build
+# secret) or an SSH deploy key. The training env installed it over SSH:
+#   -e git+ssh://git@github.com/Signeemmanuel/smart-contract-gnn-model.git@23ffacc1c145a1c79788ea2cd791d5b0dc0ced2b#egg=scgnn
+#
+# NOTE: 23ffacc1... is the GitHub *code* commit. It is distinct from the Hugging
+# Face *bundle* revision (SCGNN_REVISION, default tag 'production'; viva SHA
+# 5f87610c80520e56935d789d95e4b370216d5423), which load_model downloads at runtime.
+scgnn @ git+https://github.com/Signeemmanuel/smart-contract-gnn-model.git@23ffacc1c145a1c79788ea2cd791d5b0dc0ced2b
