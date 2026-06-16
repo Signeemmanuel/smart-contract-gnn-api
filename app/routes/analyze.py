@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from ..schema_models import AnalysisResultModel, JobError, JobSubmitResponse, JobView
@@ -36,8 +36,10 @@ _tasks: set[asyncio.Task] = set()
 
 
 class AnalyzeRequest(BaseModel):
+    # The decision threshold is intentionally NOT a client field: it is a fixed
+    # server policy (SCGNN_THRESHOLD, the reported 0.5) so every caller gets the
+    # evaluated model's verdict. The value in force is reported on /health.
     source: str = Field(min_length=1)
-    threshold: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 def _require_non_empty(text: str) -> str:
@@ -46,13 +48,12 @@ def _require_non_empty(text: str) -> str:
     return text
 
 
-async def _schedule(request: Request, source: str, threshold: float | None) -> JobSubmitResponse:
+async def _schedule(request: Request, source: str) -> JobSubmitResponse:
     settings = request.app.state.settings
     jobs = request.app.state.jobs
-    thr = settings.threshold if threshold is None else threshold
 
     job = jobs.create()
-    task = asyncio.create_task(_run(jobs, job.id, source, thr))
+    task = asyncio.create_task(_run(jobs, job.id, source, settings.threshold))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return JobSubmitResponse(job_id=job.id, status="queued")
@@ -71,14 +72,13 @@ async def _run(jobs, job_id: str, source: str, threshold: float) -> None:
 @router.post("/analyze", response_model=JobSubmitResponse, status_code=202)
 async def analyze_json(request: Request, body: AnalyzeRequest) -> JobSubmitResponse:
     source = _require_non_empty(body.source)
-    return await _schedule(request, source, body.threshold)
+    return await _schedule(request, source)
 
 
 @router.post("/analyze/file", response_model=JobSubmitResponse, status_code=202)
 async def analyze_file(
     request: Request,
     file: UploadFile = File(...),
-    threshold: float | None = Form(default=None),
 ) -> JobSubmitResponse:
     settings = request.app.state.settings
 
@@ -103,9 +103,7 @@ async def analyze_file(
         raise HTTPException(status_code=422, detail="file is not valid UTF-8 text")
 
     source = _require_non_empty(source)
-    if threshold is not None and not 0.0 <= threshold <= 1.0:
-        raise HTTPException(status_code=422, detail="threshold must be in [0, 1]")
-    return await _schedule(request, source, threshold)
+    return await _schedule(request, source)
 
 
 @router.get("/analyze/{job_id}", response_model=JobView)

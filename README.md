@@ -145,9 +145,10 @@ model that produced the reported results.
   discloses. For the viva, set `SCGNN_REVISION=5f87610c80520e56935d789d95e4b370216d5423`
   to freeze the demo to the reported checkpoint; re-point to `production`
   afterwards.
-- **Decision threshold:** `0.5`, passed explicitly on every call (the bundle's
+- **Decision threshold:** `0.5`, a fixed **server policy** (`SCGNN_THRESHOLD`),
+  not a client field, passed explicitly on every call (the bundle's
   `config.json` carries no threshold, so the `load_model` fallback would
-  otherwise be 0.70).
+  otherwise be 0.70). The value in force is reported on `/health`.
 - **Updating the live model:** re-point the `production` tag (or push and tag) →
   restart the container → `/health` shows the new resolved SHA. CodeBERT is baked
   into the image and the bundle is cached, so a restart costs seconds.

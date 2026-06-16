@@ -87,3 +87,12 @@ def test_file_too_large_rejected(client, monkeypatch):
 def test_unknown_job_id_404(client):
     r = client.get("/analyze/does-not-exist")
     assert r.status_code == 404
+
+
+def test_threshold_in_body_is_ignored(client):
+    # threshold is server policy, not a client field; sending it does no harm
+    # and changes nothing.
+    r = client.post("/analyze", json={"source": "contract Safe { uint x; }", "threshold": 0.01})
+    assert r.status_code == 202
+    body = _poll(client, r.json()["job_id"])
+    assert body["status"] == "done"
