@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="scgnn-api",
+        title="smart-contract-gnn-api",
         version="0.2.0",
         summary="HTTP service wrapping the SC-GNN smart-contract flaw detector.",
         lifespan=lifespan,
@@ -64,4 +64,4 @@ def create_app() -> FastAPI:
     return app
 
 
-app = create_app(title="smart-contract-gnn-api")
+app = create_app()

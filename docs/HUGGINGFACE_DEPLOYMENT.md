@@ -171,6 +171,7 @@ revision and loads the model (a cold start of up to a minute or two on CPU).
 
 ---
 
+
 ## 8. Operations and gotchas
 
 - **Cold start after sleep:** free Space sleeps after ~48 h idle; next request
