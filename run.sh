@@ -10,22 +10,18 @@
 #   ./run.sh all        # setup + tests + start the server
 #
 # Environment overrides:
-#   FULL=1              Install the heavy serving stack (requirements.txt)
-#                       instead of the light test/stub set. Needs a GitHub
-#                       credential for the private scgnn repo and several GB of
-#                       disk. Only needed once the real analyze_source path is
-#                       wired; the current stub runs fine on the light set.
-#   SCGNN_SRC=<spec>    Where pip gets the scgnn package from. Default tracks the
-#                       master branch over HTTPS. Override with a LOCAL CLONE to
-#                       avoid re-auth/clone (handy on gpu-01), e.g.:
-#                           SCGNN_SRC="$HOME/smart-contract-gnn-model" ./run.sh
+#   FULL=1              Use the full serving stack (requirements.txt + the model
+#                       stack you have installed, e.g. inside the Docker image).
+#                       Locally, prefer the Dockerfile for the real stack.
 #   HOST=0.0.0.0        Server bind host (default 0.0.0.0).
 #   PORT=8000           Server bind port (default 8000).
 #   PYTHON=python3      Interpreter used to build the venv.
 #
+# The scgnn inference package is VENDORED (a top-level scgnn/ directory). There is
+# no install from GitHub; if scgnn is not importable, vendor it in and re-run.
+#
 set -euo pipefail
 
-# Always operate from the repo root (this script's own directory).
 cd "$(dirname "$0")"
 
 PYTHON="${PYTHON:-python3}"
@@ -33,7 +29,6 @@ VENV=".venv"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
 FULL="${FULL:-0}"
-SCGNN_SRC="${SCGNN_SRC:-git+https://github.com/Signeemmanuel/smart-contract-gnn-model.git@master}"
 
 ACTION="${1:-all}"
 
@@ -49,24 +44,19 @@ setup() {
   python -m pip install --quiet --upgrade pip
 
   if [ "$FULL" = "1" ]; then
-    log "Installing FULL serving stack (requirements.txt) - heavy; needs GitHub creds + disk"
+    log "Installing web layer (requirements.txt); the model stack must already be present"
     pip install -r requirements.txt
   else
     log "Installing light test/stub stack (no torch, no Slither, no Hub needed)"
     pip install --quiet -r requirements-dev.txt "uvicorn[standard]>=0.30,<1"
-    if python -c "import scgnn.schema" >/dev/null 2>&1; then
-      echo "scgnn already importable - skipping its install"
-    else
-      log "Installing scgnn (schema only, --no-deps) from: $SCGNN_SRC"
-      if ! pip install --no-deps "$SCGNN_SRC"; then
-        echo
-        echo "Could not install scgnn from '$SCGNN_SRC'."
-        echo "If the private repo is not credentialed here, point SCGNN_SRC at a"
-        echo "local clone instead, e.g.:"
-        echo "    SCGNN_SRC=\"\$HOME/smart-contract-gnn-model\" ./run.sh $ACTION"
-        exit 1
-      fi
-    fi
+  fi
+
+  if ! python -c "import scgnn.schema" >/dev/null 2>&1; then
+    echo
+    echo "Could not import scgnn.schema. The scgnn package must be VENDORED into"
+    echo "this repo as a top-level scgnn/ directory (copied from the model repo at"
+    echo "the trained-model commit). Add it and re-run."
+    exit 1
   fi
 }
 
@@ -76,10 +66,15 @@ run_tests() {
 }
 
 serve() {
+  # The light install has no torch/Slither, so serve the mock there unless the
+  # full stack was installed (FULL=1) or the caller set SCGNN_MOCK explicitly.
+  if [ "$FULL" != "1" ] && [ -z "${SCGNN_MOCK:-}" ]; then
+    export SCGNN_MOCK=1
+    echo "Light install -> serving in mock mode (SCGNN_MOCK=1)."
+  fi
   if [ ! -f .env ] && [ -z "${HF_TOKEN:-}" ]; then
     echo "Note: no .env and no HF_TOKEN set - revision resolution will fail and"
-    echo "/health will report model_loaded=false. That is expected at the stub"
-    echo "stage (analysis is mocked); set HF_TOKEN in .env for the real bundle."
+    echo "/health will report model_loaded=false (expected for the mock)."
   fi
   log "Starting server on http://$HOST:$PORT  (Ctrl-C to stop)"
   exec uvicorn app.main:app --host "$HOST" --port "$PORT"

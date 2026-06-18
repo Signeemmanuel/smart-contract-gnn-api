@@ -2,17 +2,19 @@
 
 Two ways in, one job out:
 
-* ``POST /analyze``        - JSON ``{"source": "...", "threshold"?: number}``
-* ``POST /analyze/file``   - multipart ``.sol`` upload (+ optional ``threshold``)
+* ``POST /analyze``        - JSON ``{"source": "..."}``
+* ``POST /analyze/file``   - multipart ``.sol`` upload
 
 Both validate the input, enqueue a job and return ``202 {job_id, status}``.
-``GET /analyze/{job_id}`` polls for the result. Keeping the upload as its own
-path keeps the JSON contract clean for the front end and keeps the OpenAPI
-schema honest about each content type.
+``GET /analyze/{job_id}`` polls for the result. The threshold is a fixed server
+policy (see /health), not a client field.
 
-In this increment the work runs as a background task calling the mock engine.
-The next increment routes it through the bounded queue and the worker pool with
-a wall-clock timeout; the endpoint contract here does not change.
+Work runs off the event loop through the analysis engine (the process worker
+pool in the real engine), under a wall-clock timeout. A bounded number of jobs
+may be in the system at once (``SCGNN_QUEUE_MAX``); beyond that the service sheds
+load with ``503`` rather than exhausting memory. Engine failures are mapped to
+structured job outcomes: extraction/inference failure -> ``failed`` with
+``extraction_failed``; timeout -> ``failed`` with ``timeout``.
 """
 
 from __future__ import annotations
@@ -23,15 +25,14 @@ import logging
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
+from ..analysis import AnalysisTimeout, ExtractionError
 from ..schema_models import AnalysisResultModel, JobError, JobSubmitResponse, JobView
-from ..stub_engine import run_mock_analysis
 
 _log = logging.getLogger("scgnn_api.analyze")
 
 router = APIRouter(tags=["analyze"])
 
-# Keep references to in-flight background tasks so they are not garbage-collected
-# mid-run. Replaced by the managed worker pool next increment.
+# Keep references to in-flight background tasks so they are not garbage-collected.
 _tasks: set[asyncio.Task] = set()
 
 
@@ -49,24 +50,36 @@ def _require_non_empty(text: str) -> str:
 
 
 async def _schedule(request: Request, source: str) -> JobSubmitResponse:
-    settings = request.app.state.settings
-    jobs = request.app.state.jobs
+    state = request.app.state
+    settings = state.settings
 
-    job = jobs.create()
-    task = asyncio.create_task(_run(jobs, job.id, source, settings.threshold))
+    # Bounded queue: shed load instead of exhausting the host.
+    if state.inflight >= settings.queue_max:
+        raise HTTPException(status_code=503, detail="server busy; retry shortly")
+
+    job = state.jobs.create()
+    state.inflight += 1
+    task = asyncio.create_task(_run(state, job.id, source, settings.threshold))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return JobSubmitResponse(job_id=job.id, status="queued")
 
 
-async def _run(jobs, job_id: str, source: str, threshold: float) -> None:
+async def _run(state, job_id: str, source: str, threshold: float) -> None:
+    jobs = state.jobs
     jobs.set_running(job_id)
     try:
-        result = await run_mock_analysis(source, threshold)
+        result = await state.engine.analyze(source, threshold)
         jobs.set_done(job_id, result)
+    except AnalysisTimeout as exc:
+        jobs.set_failed(job_id, code="timeout", message=str(exc))
+    except ExtractionError as exc:
+        jobs.set_failed(job_id, code="extraction_failed", message=str(exc))
     except Exception as exc:  # noqa: BLE001 - never leak a stack trace to the client
         _log.exception("analysis failed for job %s", job_id)
         jobs.set_failed(job_id, code="analysis_error", message=str(exc))
+    finally:
+        state.inflight -= 1
 
 
 @router.post("/analyze", response_model=JobSubmitResponse, status_code=202)

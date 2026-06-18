@@ -29,6 +29,13 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
+    # --- mode -------------------------------------------------------------
+    # When true, serve a lightweight MOCK instead of loading the real model and
+    # extraction stack. Lets the same image run as the contract-only stub on a
+    # tiny host (e.g. Render free) and as the real service on a 2GB+ host (e.g. a
+    # Hugging Face Space) with one env var.
+    mock: bool = False
+
     # --- model source -----------------------------------------------------
     repo_id: str = "Signeemmanuel/scgnn-smartcontract"
     revision: str = "production"  # moving tag; resolved to a commit SHA at start-up

@@ -1,0 +1,12 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+.env
+tests/
+docs/
+*.md
+dump_codebase.py
+codebase_dump.txt

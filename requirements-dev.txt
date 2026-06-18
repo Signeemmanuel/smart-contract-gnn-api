@@ -1,11 +1,7 @@
-# Light dev/test dependencies. The test suite mocks the heavy calls
-# (analyze_source / load_model) and revision resolution, so it does NOT need
-# torch, Slither or the Hub.
+# Light dev/test dependencies. The scgnn package is VENDORED (scgnn/ in the repo),
+# so nothing is installed for it; the suite touches only the stdlib-only
+# scgnn.schema and mocks the heavy calls. No torch, no Slither, no Hub.
 #
-# It does need `scgnn.schema` (stdlib-only) importable. Install the pinned scgnn
-# package WITHOUT its heavy dependencies for a light dev/test environment:
-#
-#   pip install --no-deps "scgnn @ git+https://github.com/Signeemmanuel/smart-contract-gnn-model.git@23ffacc1c145a1c79788ea2cd791d5b0dc0ced2b"
 #   pip install -r requirements-dev.txt
 #   pytest -q
 

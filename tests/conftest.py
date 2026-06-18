@@ -1,9 +1,11 @@
 """Test fixtures.
 
-The whole suite runs without the heavy extraction stack and without touching the
-Hugging Face Hub: ``resolve_revision`` is monkeypatched, and analysis is the stub
-engine. This mirrors the production intent that the test suite mocks the
-expensive calls.
+The default `client` runs the service in MOCK mode (SCGNN_MOCK=1), so the
+endpoint/contract tests need neither the heavy stack nor the Hub. Revision
+resolution is monkeypatched to a known SHA.
+
+`real_client` (in test_worker.py) instead runs the real engine against a
+controllable fake `scgnn.inference`, to exercise the worker pool.
 """
 
 from __future__ import annotations
@@ -14,41 +16,38 @@ from fastapi.testclient import TestClient
 FAKE_SHA = "5f87610c80520e56935d789d95e4b370216d5423"
 
 
-@pytest.fixture
-def client(monkeypatch):
-    # Resolve to a known SHA without hitting the Hub.
-    from app import model_loader
+def _fresh_app(monkeypatch, **env):
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    from app import model_loader, settings as settings_module
 
     monkeypatch.setattr(model_loader, "resolve_revision", lambda repo_id, revision, token: FAKE_SHA)
-
-    # Rebuild settings (they are lru-cached) so any env set by a test is picked up.
-    from app import settings as settings_module
-
     settings_module.get_settings.cache_clear()
-
     from app.main import create_app
 
-    app = create_app()
+    return create_app()
+
+
+@pytest.fixture
+def client(monkeypatch):
+    app = _fresh_app(monkeypatch, SCGNN_MOCK="1")
     with TestClient(app) as c:
         yield c
 
 
 @pytest.fixture
 def client_unresolvable(monkeypatch):
-    """A client whose revision resolution fails, to exercise the degraded path."""
-    from app import model_loader
+    """A mock client whose revision resolution fails (degraded path)."""
+    from app import model_loader, settings as settings_module
+
+    monkeypatch.setenv("SCGNN_MOCK", "1")
 
     def _boom(repo_id, revision, token):
         raise RuntimeError("hub unreachable")
 
     monkeypatch.setattr(model_loader, "resolve_revision", _boom)
-
-    from app import settings as settings_module
-
     settings_module.get_settings.cache_clear()
-
     from app.main import create_app
 
-    app = create_app()
-    with TestClient(app) as c:
+    with TestClient(create_app()) as c:
         yield c

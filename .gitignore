@@ -25,3 +25,6 @@ htmlcov/
 .idea/
 .vscode/
 .DS_Store
+
+dump_codebase.py
+codebase_dump.txt
